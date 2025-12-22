@@ -1,6 +1,6 @@
 # 手寫文件辨識系統
 ## 如何運行此程式
-1. 安裝[uv](https://docs.astral.sh/uv/getting-started/installation/) (uv類似anaconda，可進行python專案與虛擬環境管理)，並加入到PATH環境變數
+1. 安裝[uv](https://docs.astral.sh/uv/getting-started/installation/) (uv角色類似anaconda，可進行python專案與虛擬環境管理)，並加入到PATH環境變數
 2. 使用終端機切換工作目錄到此根目錄
 3. `uv sync`
 4. 使用`uv run main.py`執行程式
