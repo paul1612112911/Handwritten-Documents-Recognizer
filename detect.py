@@ -286,7 +286,7 @@ class DocsDetector:
 
                 sorted_boxes = self.postprocess(sorted_boxes)  # 未來：如果同時遇到相似字母，則啟動邏輯判斷
 
-                # name_class[box[0]] if '10' != name_class[box[0]] != 'point' else '.' 是在訓練時標示分類命名的yaml檔在小數點的命名不一致的關係，在此做小數點的轉換。
+                # name_class[box[0]] if '10' != name_class[box[0]] != 'point' else '.' 是在訓練時標示分類命名的yaml檔在小數點的命名不一致的關係，在此做小數點的轉換。如果類別名是'10'或'point'則在偵測結果顯示'.'。
 
                 model_result_strings.append(''.join([name_class[box[0]] if '10' != name_class[box[0]] != 'point' else '.' for box in sorted_boxes]))
 
