@@ -45,9 +45,9 @@ class YoloModelPath:
 
 class App:
     def __init__(self, yolo_model_paths:list[YoloModelPath]):
-        self.cls_template = None # 存放Template物件
+        self.template_obj = None # 存放Template物件
         self.template_json = None # 存放轉換自json的dict
-        self.app_dir = 'app' # 應用程式主要資料夾
+        self.app_dir = '.' # 應用程式主要資料夾
         self.template_dir = os.path.join(self.app_dir, 'templates') # template json檔所在的資料夾
         self.complete_template_img_dir = os.path.join(self.template_dir, 'complete template images') # 處理後的template圖片檔所在資料夾
         os.makedirs(self.template_dir, exist_ok=True) # 若資料夾不存在，則創建資料夾
@@ -102,21 +102,19 @@ class App:
             after = complete_template.shape[:]
             print('scale template before:',before,', after:',after)
         
-        self.cls_template = Template(complete_template, get_stem(template_path))
+        self.template_obj = Template(complete_template, get_stem(template_path))
 
         if template_path.endswith(('json', 'JSON')):
             focuses = template_json['focuses']
             coords = [focus['coord'] for focus in focuses]
             model_indice = [focus['model_id'] for focus in focuses]
-            self.cls_template.set_focus(coords, model_indice)            
+            self.template_obj.set_focus(coords, model_indice)            
         
-
-    
     def save_template(self):
-        complete_template_path = self.cls_template.name + '.png'
-        cv2.imwrite(os.path.join(self.complete_template_img_dir, complete_template_path), self.cls_template.complete_template)
-        focuses = [focus.get_dict() for focus in self.cls_template.focuses]
-        name = self.cls_template.name
+        complete_template_path = self.template_obj.name + '.png'
+        cv2.imwrite(os.path.join(self.complete_template_img_dir, complete_template_path), self.template_obj.complete_template)
+        focuses = [focus.get_dict() for focus in self.template_obj.focuses]
+        name = self.template_obj.name
         json_data = {
             'name': name,
             'complete_template_path': complete_template_path,
@@ -129,16 +127,16 @@ class App:
     def detect_docs(self, docs_pathes: list[str], step_callback: Optional[Callable] = None):
         extra_rule = False
         if extra_rule:
-            detect = ExtraRuleDetector(self.yolo_model_paths, self.cls_template, "data examples/*.txt")
+            doc_detector = ExtraRuleDetector(self.yolo_model_paths, self.template_obj, "data examples/*.txt")
         else:
-            detect = DocsDetector(self.yolo_model_paths, self.cls_template)
+            doc_detector = DocsDetector(self.yolo_model_paths, self.template_obj)
 
         self.detect_result = []  #  (results, matched_img, doc_name)
         for i, path in enumerate(docs_pathes):
             if step_callback is not None:
                 step_callback(i, len(docs_pathes))
             img = cv2.imread(path)
-            results_per_doc, matched_img = detect(img)
+            results_per_doc, matched_img = doc_detector(img)
             self.detect_result.append((results_per_doc, matched_img, get_stem(path)))
             print(f"detect result {i}:")
             print(results_per_doc)
@@ -148,7 +146,7 @@ class App:
         if len(self.detect_result) == 0:
             raise Exception('there is no result.')
         
-        shaped_indice_lst, _, _ = self.cls_template.get_cells()
+        shaped_indice_lst, _, _ = self.template_obj.get_cells()
         
         wb = Workbook()
         for indexed_results_per_doc, _, doc_name in self.detect_result:
@@ -203,9 +201,9 @@ if __name__ == '__main__':
             dir = "docs_detect/OCR compare/no print training set"
         for model_idx, char in enumerate(['digit', 'letter', 'mix']):
             for font in ['print', 'handWritting', 'overlapping']:
-                app.cls_template.clr_focus()
+                app.template_obj.clr_focus()
                 print(model_idx)
-                app.cls_template.add_focus(table_coords[font], model_idx+3 if have_print else model_idx)
+                app.template_obj.add_focus(table_coords[font], model_idx+3 if have_print else model_idx)
                 debug_global_var.save_name = f"{'have print trainset' if have_print else 'no print trainset'} {font} {char}"
                 if not have_print:
                     debug_global_var.pure_img_save_name = f"{font} {char}"

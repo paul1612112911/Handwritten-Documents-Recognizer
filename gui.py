@@ -51,7 +51,7 @@ class WindowApp:
         assert len(coord_format) == len(coords)
         assert mode == 'tp2cv' or mode == 'cv2tp'
 
-        tp_w, tp_h = self.app.cls_template.size()
+        tp_w, tp_h = self.app.template_obj.size()
         if isinstance(coords[0], (int, float)):
             x_cvt = (lambda x: int(x*self.canvas_w/tp_w)) if mode == 'tp2cv' else (lambda x: int(x*tp_w/self.canvas_w))
             y_cvt = (lambda y: int(y*self.canvas_h/tp_h)) if mode == 'tp2cv' else (lambda y: int(y*tp_h/self.canvas_h))
@@ -73,14 +73,14 @@ class WindowApp:
         return result
     
     def _draw_boxes_and_lines(self, canvas: CTkCanvas):
-        lines = self.app.cls_template.detect_lines()
-        focus_coords = [focus.coord for focus in self.app.cls_template.focuses]
+        lines = self.app.template_obj.detect_lines()
+        focus_coords = [focus.coord for focus in self.app.template_obj.focuses]
         if len(lines) != 0:
             focus_rows, focus_cols = list(zip(*lines))  # list of arrays
         else:
             focus_rows, focus_cols = [],[]
         canvas.delete('detected_line', 'boxed_focus')
-        for focus_coord, rows, cols in zip(focus_coords, focus_rows, focus_cols, strict=True):
+        for focus_coord, rows, cols in zip(focus_coords, focus_rows, focus_cols, strict=True): # 迭代每個框
             print('template rows:',rows, 'cols:', cols)
             rows, cols = self._cvt_coord('tp2cv', 'yx', rows, cols)
             print('canvas rows:',rows, 'cols:', cols)
@@ -93,15 +93,15 @@ class WindowApp:
             print('rows on canvas:', rows)
             print('cols on canvas:', cols)
             for row in rows:
-                canvas.create_line(focus_coord[0][0], row, focus_coord[1][0], row, tags='detected_line', width=3, fill="#00f")
+                canvas.create_line(cols[0], row, cols[-1], row, tags='detected_line', width=3, fill="#00f")
             for col in cols:
-                canvas.create_line(col, focus_coord[0][1], col, focus_coord[1][1], tags='detected_line', width=3, fill="#00f")
+                canvas.create_line(col, rows[0], col, rows[-1], tags='detected_line', width=3, fill="#00f")
             
             canvas.create_rectangle(focus_coord[0][0],focus_coord[0][1],focus_coord[1][0],focus_coord[1][1], tags='boxed_focus', width=5)
     
     def _display_result_oncanvas(self, canvas: CTkCanvas, doc_num: int, tag):
         results = self.app.detect_result[doc_num]
-        cell_coords = self.app.cls_template.get_indexed_coords_without_extend().copy()
+        cell_coords = self.app.template_obj.get_indexed_coords_without_extend().copy()
         cell_coords[...,0] = self._cvt_coord('tp2cv', 'x', cell_coords[...,0])[0]
         cell_coords[...,1] = self._cvt_coord('tp2cv', 'y', cell_coords[...,1])[0]
         canvas.delete(tag)
@@ -163,20 +163,20 @@ class WindowApp:
         status_label = CTkLabel(left_side, text=tg.get_text('LoadTemplateLabel'), font=font, wraplength=self.left_width//3*2)
         # 模板畫布設定
         self.chosen_boxes = [] # 儲存以畫布為主的選擇框座標
-        photo = None
+        template_photoImage = None
         # 設定當載入模板時提供框選的畫布
         def set_template_boxing_mode():
             print('setting template canvas to boxing mode')
-            if len(self.app.cls_template.focuses)==0:
+            if len(self.app.template_obj.focuses)==0:
                 status_label.configure(text=tg.get_text('SelectRecogAreaLabel'))
             else:
                 status_label.configure(text=tg.get_text('FinishSelectLabel'))
 
             template_canvas.delete('all')
-            nonlocal photo
-            photo = self.app.cls_template.to_tk_img((self.canvas_w, self.canvas_h))
+            nonlocal template_photoImage
+            template_photoImage = self.app.template_obj.to_tk_img((self.canvas_w, self.canvas_h))
 
-            template_canvas.create_image(0,0, image=photo, anchor='nw', tags=('template'))
+            template_canvas.create_image(0,0, image=template_photoImage, anchor='nw', tags=('template'))
             choosing_points = [] # 儲存正在選擇的點座標，以canvas座標為準
 
 
@@ -187,7 +187,6 @@ class WindowApp:
 
                 # 繪製目前選擇中的眶
                 if len(choosing_points) == 1:
-                    tp_w, tp_h = self.app.cls_template.size()
                     template_canvas.delete('choosing_box')
                     template_canvas.create_rectangle(choosing_points[0][0], choosing_points[0][1], event.x, event.y, tags=('choosing_box'), 
                                                      outline='blue', width=3)
@@ -209,7 +208,7 @@ class WindowApp:
 
                     target_model = choosing_model_id.get()
                     choosing_x1, choosing_y1, choosing_x2, choosing_y2 = self._cvt_coord('cv2tp','xyxy', choosing_x1, choosing_y1, choosing_x2, choosing_y2)
-                    self.app.cls_template.add_focus(((choosing_x1, choosing_y1), (choosing_x2, choosing_y2)), target_model)
+                    self.app.template_obj.add_focus(((choosing_x1, choosing_y1), (choosing_x2, choosing_y2)), target_model)
                     choosing_points.clear()
                     
                     status_label.configure(text=tg.get_text('FinishSelectLabel'))
@@ -228,7 +227,7 @@ class WindowApp:
 
             clear_focus_btn.configure(state = 'normal')
             load_template_btn.configure(state = 'normal')
-            if len(self.app.cls_template.focuses) == 0:
+            if len(self.app.template_obj.focuses) == 0:
                 detect_files_btn.configure(state = 'disabled')
                 detect_folder_btn.configure(state = 'disabled')
             else:
@@ -246,7 +245,7 @@ class WindowApp:
             template_canvas.delete('cross')
 
             activating_result = 0
-            cell_coords = self.app.cls_template.get_indexed_coords_without_extend().copy()
+            cell_coords = self.app.template_obj.get_indexed_coords_without_extend().copy()
             
             status_label.configure(text=tg.get_text('RecogDoneLabel'))
 
@@ -314,7 +313,7 @@ class WindowApp:
             doc_canvas.create_image(0,0,anchor=tk.NW, image=keep_showing_doc, tags='referencing_doc')
 
             def change_doc(event: tk.Event):
-                print('event delta:',event.delta)  
+                print('event delta:',event.delta)   # event.delta: 手指往下撥為負，往上為正
                 nonlocal activating_result, keep_showing_doc
                 if event.delta < 0 and activating_result < len(self.app.detect_result)-1:
                     activating_result += 1
@@ -331,7 +330,7 @@ class WindowApp:
             
             template_canvas.bind("<Motion>", hover)
             template_canvas.bind("<Button-1>", clicked) 
-            template_canvas.bind("<MouseWheel>", change_doc) # event.delta: 手指往下撥為負，往上為正
+            template_canvas.bind("<MouseWheel>", change_doc)
 
             load_template_btn.configure(state = 'disabled')
             detect_files_btn.configure(state = 'disabled')
@@ -409,7 +408,7 @@ class WindowApp:
 
         # 設定清除框的按鈕
         def clear_focus():
-            self.app.cls_template.clr_focus()
+            self.app.template_obj.clr_focus()
             self._draw_boxes_and_lines(template_canvas)
             detect_files_btn.configure(state = 'disabled')
             detect_folder_btn.configure(state = 'disabled')

@@ -93,6 +93,7 @@ class Template:
         print('now storing focuses:')
         for focus in self.focuses:
             print(focus.coord, focus.model_id)
+        print()
     def set_focus(self, coords, model_indice):
         self.focuses = [Focus(coord, model_idx) for coord, model_idx in zip(coords, model_indice, strict=True)]
         self._gotton_focuses = False

@@ -12,6 +12,7 @@ wheels/
 # I/O files
 result.xlsx
 debugs/
+templates/
 
 # testing codes
 test__*
