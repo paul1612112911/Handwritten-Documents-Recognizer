@@ -19,7 +19,6 @@ from threading import Thread
 from PIL import Image, ImageTk
 from glob import glob
 from customtkinter import *
-from time import time
 from typing import Literal
 from langs import TextGetter
 
@@ -35,6 +34,14 @@ class MyInputDialog(CTkInputDialog):
         self._entry.insert(0, self._default_text)  # 在此處插入預設文字
 
 class WindowApp:
+    def __init__(self, model_infos:list[list[str]]):
+        self.root = CTk()
+        self.app = App([YoloModelPath(*(info[1:])) for info in model_infos])
+        self.construct_window([info[0] for info in model_infos])
+
+    def start(self):
+        self.root.mainloop()
+    
     def _cvt_coord(self, mode: Literal['tp2cv', 'cv2tp'], coord_format:str, *coords):
         """
         轉換座標點的工具函式
@@ -112,15 +119,86 @@ class WindowApp:
             center_y = y1 + (y2 - y1) / 2
             canvas.create_text(center_x, center_y, text=result_str, fill='blue', font=("Arial", int((y2 - y1)*0.5)), tags=tag)
 
+    # 設定當載入模板時提供框選的畫布
+    def set_template_boxing_mode(self):
+        print('setting template canvas to boxing mode')
+        if len(self.app.template_obj.focuses)==0:
+            self.status_label.configure(text=self.tg.get_text('SelectRecogAreaLabel'))
+        else:
+            self.status_label.configure(text=self.tg.get_text('FinishSelectLabel'))
+
+        self.template_canvas.delete('all')
+        self.template_photoImage = self.app.template_obj.to_tk_img((self.canvas_w, self.canvas_h))
+
+        self.template_canvas.create_image(0,0, image=self.template_photoImage, anchor='nw', tags=('template'))
+        choosing_points = [] # 儲存正在選擇的點座標，以canvas座標為準
+
+
+        def moving_mouse(event: tk.Event):
+            self.template_canvas.delete('cross')
+            self.template_canvas.create_line(event.x, 0, event.x, self.canvas_h, tags=('cross'), fill='red')
+            self.template_canvas.create_line(0, event.y, self.canvas_w, event.y, width=1, fill='#f00', tags='cross')
+
+            # 繪製目前選擇中的眶
+            if len(choosing_points) == 1:
+                self.template_canvas.delete('choosing_box')
+                self.template_canvas.create_rectangle(choosing_points[0][0], choosing_points[0][1], event.x, event.y, tags=('choosing_box'), 
+                                                    outline='blue', width=3)
+        
+        def clear_cross(event: tk.Event): # 離開時，去除十字
+            self.template_canvas.delete('cross')
+        
+        def choose_point(event: tk.Event): # 被點擊的事件
+            choosing_points.append([event.x, event.y])
+            if len(choosing_points) == 1:
+                self.status_label.configure(text=self.tg.get_text('SelectingLabel'))
+            
+            if len(choosing_points) >= 2:
+                (choosing_x1, choosing_y1), (choosing_x2, choosing_y2) = choosing_points[:2]
+                choosing_x1, choosing_x2 = sorted([choosing_x1, choosing_x2])
+                choosing_y1, choosing_y2 = sorted([choosing_y1, choosing_y2])
+
+                self.chosen_boxes.append(((choosing_x1, choosing_y1), (choosing_x2, choosing_y2)))
+
+                target_model = self.choosing_model_id.get()
+                choosing_x1, choosing_y1, choosing_x2, choosing_y2 = self._cvt_coord('cv2tp','xyxy', choosing_x1, choosing_y1, choosing_x2, choosing_y2)
+                self.app.template_obj.add_focus(((choosing_x1, choosing_y1), (choosing_x2, choosing_y2)), target_model)
+                choosing_points.clear()
+                
+                self.status_label.configure(text=self.tg.get_text('FinishSelectLabel'))
+                self.template_canvas.delete('choosing_box')
+                self._draw_boxes_and_lines(self.template_canvas)
+
+                self.detect_files_btn.configure(state = 'normal')
+                self.detect_folder_btn.configure(state = 'normal')
+                self.end_editing_btn.configure(state = 'disabled')
+        
+        self.template_canvas.bind("<Motion>", moving_mouse)
+        self.template_canvas.bind("<Leave>", clear_cross)
+        self.template_canvas.bind("<Button-1>", choose_point)
+
+        self._draw_boxes_and_lines(self.template_canvas)
+
+        self.clear_focus_btn.configure(state = 'normal')
+        self.load_template_btn.configure(state = 'normal')
+        if len(self.app.template_obj.focuses) == 0:
+            self.detect_files_btn.configure(state = 'disabled')
+            self.detect_folder_btn.configure(state = 'disabled')
+        else:
+            self.detect_files_btn.configure(state = 'normal')
+            self.detect_folder_btn.configure(state = 'normal')
+        self.end_editing_btn.configure(state = 'disabled')
+
+
     def construct_window(self, model_names):
         
-        tg = TextGetter()
-        tg.set_language("Chinese") # 設定語言
+        self.tg = TextGetter()
+        self.tg.set_language("Chinese") # 設定語言
 
         # 設定視窗大小位置
         self.root.geometry('1500x800+100+100')
 
-        # 設定畫面長寬
+        # 設定畫布長寬
         self.canvas_w = 600
         self.canvas_h = 800
 
@@ -128,310 +206,230 @@ class WindowApp:
         self.left_width = 300
 
         # 建立可捲動的左側欄位Frame
-        left_side = CTkScrollableFrame(self.root, width=self.left_width, height=self.canvas_h)
+        self.left_side = CTkScrollableFrame(self.root, width=self.left_width, height=self.canvas_h)
 
         # 設定字體
-        font = CTkFont('Microsoft JhengHei', 18)
+        self.font = CTkFont('Microsoft JhengHei', 18)
 
         # 建立元件
         #  模板畫布
-        template_canvas = CTkCanvas(self.root, width=self.canvas_w, height=self.canvas_h, bg='white')
+        self.template_canvas = CTkCanvas(self.root, width=self.canvas_w, height=self.canvas_h, bg='white')
 
         #  載入模板的按鈕
-        load_template_btn = CTkButton(left_side, text=tg.get_text('LoadTemplateBtn'), font=font, state='normal')
+        self.load_template_btn = CTkButton(self.left_side, text=self.tg.get_text('LoadTemplateBtn'), font=self.font, state='normal')
+        self.load_template_btn.configure(command=self.load_template)
 
         #  清除框的按鈕
-        clear_focus_btn = CTkButton(left_side, text=tg.get_text('ClearBtn'), font=font, state='disabled')
+        self.clear_focus_btn = CTkButton(self.left_side, text=self.tg.get_text('ClearBtn'), font=self.font, state='disabled')
+        self.clear_focus_btn.configure(command=self.clear_focus)
 
         #  選擇使用何種模型
-        model_radios = [CTkRadioButton(left_side, text=name, value=i) for i, name in enumerate(model_names)]
-        choosing_model_id = tk.IntVar(value=0)
-        [radio.configure(variable=choosing_model_id) for radio in model_radios]    
+        self.model_radios = [CTkRadioButton(self.left_side, text=name, value=i) for i, name in enumerate(model_names)]
+        self.choosing_model_id = tk.IntVar(value=0)
+        [radio.configure(variable=self.choosing_model_id) for radio in self.model_radios]    
 
-        #  辨識單一圖片檔案的按鈕
-        detect_files_btn = CTkButton(left_side, text=tg.get_text('RecogFileDocBtn'), font=font, state='disabled')
+        #  辨識手寫圖片文件檔案的按鈕
+        self.detect_files_btn = CTkButton(self.left_side, text=self.tg.get_text('RecogFileDocBtn'), font=self.font, state='disabled')
+        self.detect_files_btn.configure(command=self.detect_files)
 
         #  辨識資料夾內圖片的按鈕
-        detect_folder_btn = CTkButton(left_side, text=tg.get_text('RecogFolderDocBtn'), font=font, state='disabled')
+        self.detect_folder_btn = CTkButton(self.left_side, text=self.tg.get_text('RecogFolderDocBtn'), font=self.font, state='disabled')
+        self.detect_folder_btn.configure(command=self.detect_folder)
 
         # 結束編輯並儲存結果的按鈕
-        end_editing_btn = CTkButton(left_side, text=tg.get_text('EndEditAndSaveBtn'), font=font, state='disabled')
+        self.end_editing_btn = CTkButton(self.left_side, text=self.tg.get_text('EndEditAndSaveBtn'), font=self.font, state='disabled')
+        self.end_editing_btn.configure(command=self.end_of_editing)
 
         #  顯示文件圖片的畫布
-        doc_canvas = CTkCanvas(self.root, width=self.canvas_w, height=self.canvas_h)
+        self.doc_canvas = CTkCanvas(self.root, width=self.canvas_w, height=self.canvas_h)
+        
         # 建立標籤
-        status_label = CTkLabel(left_side, text=tg.get_text('LoadTemplateLabel'), font=font, wraplength=self.left_width//3*2)
+        self.status_label = CTkLabel(self.left_side, text=self.tg.get_text('LoadTemplateLabel'), font=self.font, wraplength=self.left_width//3*2)
+        
         # 模板畫布設定
         self.chosen_boxes = [] # 儲存以畫布為主的選擇框座標
-        template_photoImage = None
-        # 設定當載入模板時提供框選的畫布
-        def set_template_boxing_mode():
-            print('setting template canvas to boxing mode')
-            if len(self.app.template_obj.focuses)==0:
-                status_label.configure(text=tg.get_text('SelectRecogAreaLabel'))
-            else:
-                status_label.configure(text=tg.get_text('FinishSelectLabel'))
+        self.template_photoImage = None
+        
+        # 避免被垃圾回收
+        self.keep_showing_doc = None
 
-            template_canvas.delete('all')
-            nonlocal template_photoImage
-            template_photoImage = self.app.template_obj.to_tk_img((self.canvas_w, self.canvas_h))
-
-            template_canvas.create_image(0,0, image=template_photoImage, anchor='nw', tags=('template'))
-            choosing_points = [] # 儲存正在選擇的點座標，以canvas座標為準
-
-
-            def moving_mouse(event: tk.Event):
-                template_canvas.delete('cross')
-                template_canvas.create_line(event.x, 0, event.x, self.canvas_h, tags=('cross'), fill='red')
-                template_canvas.create_line(0, event.y, self.canvas_w, event.y, width=1, fill='#f00', tags='cross')
-
-                # 繪製目前選擇中的眶
-                if len(choosing_points) == 1:
-                    template_canvas.delete('choosing_box')
-                    template_canvas.create_rectangle(choosing_points[0][0], choosing_points[0][1], event.x, event.y, tags=('choosing_box'), 
-                                                     outline='blue', width=3)
-            
-            def clear_cross(event: tk.Event): # 離開時，去除十字
-                template_canvas.delete('cross')
-            
-            def choose_point(event: tk.Event): # 被點擊的事件
-                choosing_points.append([event.x, event.y])
-                if len(choosing_points) == 1:
-                    status_label.configure(text=tg.get_text('SelectingLabel'))
-                
-                if len(choosing_points) >= 2:
-                    (choosing_x1, choosing_y1), (choosing_x2, choosing_y2) = choosing_points[:2]
-                    choosing_x1, choosing_x2 = sorted([choosing_x1, choosing_x2])
-                    choosing_y1, choosing_y2 = sorted([choosing_y1, choosing_y2])
-
-                    self.chosen_boxes.append(((choosing_x1, choosing_y1), (choosing_x2, choosing_y2)))
-
-                    target_model = choosing_model_id.get()
-                    choosing_x1, choosing_y1, choosing_x2, choosing_y2 = self._cvt_coord('cv2tp','xyxy', choosing_x1, choosing_y1, choosing_x2, choosing_y2)
-                    self.app.template_obj.add_focus(((choosing_x1, choosing_y1), (choosing_x2, choosing_y2)), target_model)
-                    choosing_points.clear()
-                    
-                    status_label.configure(text=tg.get_text('FinishSelectLabel'))
-                    template_canvas.delete('choosing_box')
-                    self._draw_boxes_and_lines(template_canvas)
-
-                    detect_files_btn.configure(state = 'normal')
-                    detect_folder_btn.configure(state = 'normal')
-                    end_editing_btn.configure(state = 'disabled')
-            
-            template_canvas.bind("<Motion>", moving_mouse)
-            template_canvas.bind("<Leave>", clear_cross)
-            template_canvas.bind("<Button-1>", choose_point)
-
-            self._draw_boxes_and_lines(template_canvas)
-
-            clear_focus_btn.configure(state = 'normal')
-            load_template_btn.configure(state = 'normal')
-            if len(self.app.template_obj.focuses) == 0:
-                detect_files_btn.configure(state = 'disabled')
-                detect_folder_btn.configure(state = 'disabled')
-            else:
-                detect_files_btn.configure(state = 'normal')
-                detect_folder_btn.configure(state = 'normal')
-            end_editing_btn.configure(state = 'disabled')
-
-        keep_showing_doc = None
         # 設定在模板畫布上顯示結果
-        def set_template_edit_mode():
-            print('setting template canvas to editable mode')
-            template_canvas.unbind("<Motion>")
-            template_canvas.unbind("<Leave>")
-            template_canvas.unbind("<Button-1>")
-            template_canvas.delete('cross')
-
-            activating_result = 0
-            cell_coords = self.app.template_obj.get_indexed_coords_without_extend().copy()
-            
-            status_label.configure(text=tg.get_text('RecogDoneLabel'))
-
-            # 轉換座標
-            cell_coords[...,0] = self._cvt_coord('tp2cv', 'x', cell_coords[...,0])[0]
-            cell_coords[...,1] = self._cvt_coord('tp2cv', 'y', cell_coords[...,1])[0]
-
-            # 提取座標
-            left_coords = cell_coords[:,0,0]   # 左上座標的x值
-            right_coords = cell_coords[:,1,0]  # 右下座標的x值
-            top_coords = cell_coords[:,0,1]    # 左上座標的y值
-            bottom_coords = cell_coords[:,1,1] # 右下座標的y值
-
-
-            def find_target_cell_index(x, y):
-                # 尋找符合游標位置的座標欄位索引值
-                left_excluded_idx   = left_coords < x
-                right_excluded_idx  = right_coords > x
-                top_excluded_idx    = top_coords < y
-                bottom_excluded_idx = bottom_coords > y
-                # print(np.stack((left_excluded_idx, right_excluded_idx, top_excluded_idx, bottom_excluded_idx)))
-                idx_intersect = np.where(np.all((left_excluded_idx, right_excluded_idx, top_excluded_idx, bottom_excluded_idx), axis=0))[0]
-
-                return idx_intersect
-
-            def hover(event: tk.Event):
-                x, y = event.x, event.y
-                idx_intersect = find_target_cell_index(x, y)
-                if len(idx_intersect) == 1:
-                    idx_intersect = idx_intersect.item()
-                    
-                    being_hovered_cell_coord = cell_coords[idx_intersect]
-                    # print('being_hovered_cell_coord:', being_hovered_cell_coord)
-                    template_canvas.delete('highlighted_cell')
-                    template_canvas.create_rectangle(
-                        being_hovered_cell_coord[0, 0], being_hovered_cell_coord[0, 1],
-                        being_hovered_cell_coord[1, 0], being_hovered_cell_coord[1, 1],
-                        outline='green', tags='highlighted_cell', width=2
-                    )
-                else:
-                    template_canvas.delete('highlighted_cell')
-
-            def clicked(event: tk.Event):
-                x, y = event.x, event.y
-                idx_intersect = find_target_cell_index(x, y)
-                print('found cell index:', idx_intersect)
-                if len(idx_intersect) == 1:
-                    idx = idx_intersect.item()
-                    chosen_result = self.app.detect_result[activating_result][0][idx] 
-                    dialog = MyInputDialog(
-                        title=tg.get_text('ManualInputDialogTitle'), 
-                        text=tg.get_text('ManualInputDialogHint'), 
-                        font=font, default_text=chosen_result
-                    )
-                    new_text = dialog.get_input()
-                    if new_text is None:
-                        new_text = chosen_result
-                    self.app.detect_result[activating_result][0][idx] = new_text
-                    self._display_result_oncanvas(template_canvas, activating_result, tag="recognition_result")
-
-
-            self._display_result_oncanvas(template_canvas, activating_result, tag="recognition_result")
-            nonlocal keep_showing_doc
-            keep_showing_doc = ImageTk.PhotoImage(Image.fromarray(self.app.detect_result[activating_result][1]).resize((self.canvas_w, self.canvas_h)))
-            doc_canvas.create_image(0,0,anchor=tk.NW, image=keep_showing_doc, tags='referencing_doc')
-
-            def change_doc(event: tk.Event):
-                print('event delta:',event.delta)   # event.delta: 手指往下撥為負，往上為正
-                nonlocal activating_result, keep_showing_doc
-                if event.delta < 0 and activating_result < len(self.app.detect_result)-1:
-                    activating_result += 1
-                elif event.delta > 0 and activating_result > 0:
-                    activating_result -=1
-                else:
-                    return
-                
-                print(f'displaying result {activating_result}')
-                self._display_result_oncanvas(template_canvas, activating_result, tag="recognition_result")
-                keep_showing_doc = ImageTk.PhotoImage(Image.fromarray(self.app.detect_result[activating_result][1]).resize((self.canvas_w, self.canvas_h)))
-                doc_canvas.delete('referencing_doc')
-                doc_canvas.create_image(0,0,anchor=tk.NW, image=keep_showing_doc, tags='referencing_doc')                
-            
-            template_canvas.bind("<Motion>", hover)
-            template_canvas.bind("<Button-1>", clicked) 
-            template_canvas.bind("<MouseWheel>", change_doc)
-
-            load_template_btn.configure(state = 'disabled')
-            detect_files_btn.configure(state = 'disabled')
-            detect_folder_btn.configure(state = 'disabled')
-            clear_focus_btn.configure(state = 'disabled')
-            end_editing_btn.configure(state = 'normal')
-        
-        def end_of_editing():
-            # 消除編輯結果的數字和事件
-            template_canvas.delete("recognition_result")
-            template_canvas.unbind("<Motion>")
-            template_canvas.unbind("<Button-1>")
-            template_canvas.unbind("<MouseWheel>")
-            doc_canvas.delete('referencing_doc')
-
-            # 儲存結果
-            save_path = filedialog.asksaveasfilename(
-                initialdir='app2/',
-                title=tg.get_text('SaveResultWindowTitle'),
-                defaultextension='.xlsx',
-                filetypes=[('Microsoft Excel', '*.xlsx')]
-            )
-            if save_path != '':
-                self.app.save_results_as_excel(save_path)
-
-            # 回到原本的框選模式
-            set_template_boxing_mode()
-        end_editing_btn.configure(command=end_of_editing)
-        
-        # 設定載入模板的按鈕
-        def load_template():
-            def f():
-                file_path = filedialog.askopenfilename()
-                if file_path == '':
-                    return
-                status_label.configure(text = tg.get_text('LoadingTemplateBtn'))
-                self.app.load_template(file_path)
-                set_template_boxing_mode()
-            load_template_thread = Thread(target=f)
-            load_template_thread.start()
-        load_template_btn.configure(command=load_template)
-
-        # 設定辨識檔案圖片的按鈕
-        def detect_files():
-            def f():
-                file_pathes = filedialog.askopenfilenames()
-                if len(file_pathes) == 0:
-                    return
-                clear_focus_btn.configure(state = 'disabled')
-                load_template_btn.configure(state = 'disabled')
-                detect_files_btn.configure(state = 'disabled')
-                detect_folder_btn.configure(state = 'disabled')
-                self.app.detect_docs(file_pathes)
-                set_template_edit_mode()
-            detect_files_thread = Thread(target=f)
-            detect_files_thread.start()
-        detect_files_btn.configure(command=detect_files)
-
-        # 設定辨識資料夾圖片的按鈕
-        def detect_folder():
-            def f():
-                folder_path = filedialog.askdirectory()
-                if len(folder_path) == 0:
-                    return
-                clear_focus_btn.configure(state = 'disabled')
-                load_template_btn.configure(state = 'disabled')
-                detect_files_btn.configure(state = 'disabled')
-                detect_folder_btn.configure(state = 'disabled')
-                self.app.detect_docs(glob(folder_path+'/*'))
-                set_template_edit_mode()
-            detect_folder_thread = Thread(target=f)
-            detect_folder_thread.start()
-        detect_folder_btn.configure(command=detect_folder)
-
-
-        # 設定清除框的按鈕
-        def clear_focus():
-            self.app.template_obj.clr_focus()
-            self._draw_boxes_and_lines(template_canvas)
-            detect_files_btn.configure(state = 'disabled')
-            detect_folder_btn.configure(state = 'disabled')
-        clear_focus_btn.configure(command=clear_focus)
+        self.showing_page_num = 0
         
         # 建立排版
-        doc_canvas.pack(side='right')
-        template_canvas.pack(side='right')
-        left_side.pack(fill='y')
-        load_template_btn.pack(side='top', padx=10, pady=10)
-        clear_focus_btn.pack(side='top', padx=10, pady=10)
-        [radio.pack(side='top', padx=10, pady=10) for radio in model_radios]
-        detect_files_btn.pack(side='top', padx=10, pady=10)
-        detect_folder_btn.pack(side='top', padx=10, pady=10)
-        end_editing_btn.pack(side='top', padx=10, pady=10)
-        status_label.pack(side='top', pady=10)
+        self.doc_canvas.pack(side='right')
+        self.template_canvas.pack(side='right')
+        self.left_side.pack(fill='y')
+        self.load_template_btn.pack(side='top', padx=10, pady=10)
+        self.clear_focus_btn.pack(side='top', padx=10, pady=10)
+        [radio.pack(side='top', padx=10, pady=10) for radio in self.model_radios]
+        self.detect_files_btn.pack(side='top', padx=10, pady=10)
+        self.detect_folder_btn.pack(side='top', padx=10, pady=10)
+        self.end_editing_btn.pack(side='top', padx=10, pady=10)
+        self.status_label.pack(side='top', pady=10)
+
+    def load_template(self):
+        def f():
+            file_path = filedialog.askopenfilename()
+            if file_path == '':
+                return
+            self.status_label.configure(text = self.tg.get_text('LoadingTemplateBtn'))
+            self.app.load_template(file_path)
+            self.set_template_boxing_mode()
+        load_template_thread = Thread(target=f)
+        load_template_thread.start()
 
 
-    def __init__(self, model_infos:list[list[str]]):
-        self.root = CTk()
-        self.app = App([YoloModelPath(*(info[1:])) for info in model_infos])
-        self.construct_window([info[0] for info in model_infos])
+    def clear_focus(self):
+        self.app.template_obj.clr_focus()
+        self._draw_boxes_and_lines(self.template_canvas)
+        self.detect_files_btn.configure(state = 'disabled')
+        self.detect_folder_btn.configure(state = 'disabled')
 
-    def start(self):
-        self.root.mainloop()
+    def detect_files(self):
+        def f():
+            file_pathes = filedialog.askopenfilenames()
+            if len(file_pathes) == 0:
+                return
+            self.clear_focus_btn.configure(state = 'disabled')
+            self.load_template_btn.configure(state = 'disabled')
+            self.detect_files_btn.configure(state = 'disabled')
+            self.detect_folder_btn.configure(state = 'disabled')
+            self.app.detect_docs(file_pathes)
+            self.set_result_editing_mode()
+        detect_files_thread = Thread(target=f)
+        detect_files_thread.start()
 
+    def detect_folder(self):
+        def f():
+            folder_path = filedialog.askdirectory()
+            if len(folder_path) == 0:
+                return
+            self.clear_focus_btn.configure(state = 'disabled')
+            self.load_template_btn.configure(state = 'disabled')
+            self.detect_files_btn.configure(state = 'disabled')
+            self.detect_folder_btn.configure(state = 'disabled')
+            self.app.detect_docs(glob(folder_path+'/*'))
+            self.set_result_editing_mode()
+        detect_folder_thread = Thread(target=f)
+        detect_folder_thread.start()
+
+    def set_result_editing_mode(self):
+        print('setting template canvas to editable mode')
+        self.template_canvas.unbind("<Motion>")
+        self.template_canvas.unbind("<Leave>")
+        self.template_canvas.unbind("<Button-1>")
+        self.template_canvas.delete('cross')
+
+        cell_coords = self.app.template_obj.get_indexed_coords_without_extend().copy()
+        
+        self.status_label.configure(text=self.tg.get_text('RecogDoneLabel'))
+
+        # 轉換座標
+        cell_coords[...,0] = self._cvt_coord('tp2cv', 'x', cell_coords[...,0])[0]
+        cell_coords[...,1] = self._cvt_coord('tp2cv', 'y', cell_coords[...,1])[0]
+
+        # 提取座標
+        left_coords = cell_coords[:,0,0]   # 左上座標的x值
+        right_coords = cell_coords[:,1,0]  # 右下座標的x值
+        top_coords = cell_coords[:,0,1]    # 左上座標的y值
+        bottom_coords = cell_coords[:,1,1] # 右下座標的y值
+
+
+        def find_target_cell_index(x, y):
+            # 尋找符合游標位置的座標欄位索引值
+            left_excluded_idx   = left_coords < x
+            right_excluded_idx  = right_coords > x
+            top_excluded_idx    = top_coords < y
+            bottom_excluded_idx = bottom_coords > y
+            # print(np.stack((left_excluded_idx, right_excluded_idx, top_excluded_idx, bottom_excluded_idx)))
+            idx_intersect = np.where(np.all((left_excluded_idx, right_excluded_idx, top_excluded_idx, bottom_excluded_idx), axis=0))[0]
+
+            return idx_intersect
+
+        def hover(event: tk.Event):
+            x, y = event.x, event.y
+            idx_intersect = find_target_cell_index(x, y)
+            if len(idx_intersect) == 1:
+                idx_intersect = idx_intersect.item()
+                
+                being_hovered_cell_coord = cell_coords[idx_intersect]
+                # print('being_hovered_cell_coord:', being_hovered_cell_coord)
+                self.template_canvas.delete('highlighted_cell')
+                self.template_canvas.create_rectangle(
+                    being_hovered_cell_coord[0, 0], being_hovered_cell_coord[0, 1],
+                    being_hovered_cell_coord[1, 0], being_hovered_cell_coord[1, 1],
+                    outline='green', tags='highlighted_cell', width=2
+                )
+            else:
+                self.template_canvas.delete('highlighted_cell')
+
+        def clicked(event: tk.Event):
+            x, y = event.x, event.y
+            idx_intersect = find_target_cell_index(x, y)
+            print('found cell index:', idx_intersect)
+            if len(idx_intersect) == 1:
+                idx = idx_intersect.item()
+                chosen_result = self.app.detect_result[self.showing_page_num][0][idx] 
+                dialog = MyInputDialog(
+                    title=self.tg.get_text('ManualInputDialogTitle'), 
+                    text=self.tg.get_text('ManualInputDialogHint'), 
+                    font=self.font, default_text=chosen_result
+                )
+                new_text = dialog.get_input()
+                if new_text is None:
+                    new_text = chosen_result
+                self.app.detect_result[self.showing_page_num][0][idx] = new_text
+                self._display_result_oncanvas(self.template_canvas, self.showing_page_num, tag="recognition_result")
+
+
+        self._display_result_oncanvas(self.template_canvas, self.showing_page_num, tag="recognition_result")
+        self.keep_showing_doc = ImageTk.PhotoImage(Image.fromarray(self.app.detect_result[self.showing_page_num][1]).resize((self.canvas_w, self.canvas_h)))
+        self.doc_canvas.create_image(0,0,anchor=tk.NW, image=self.keep_showing_doc, tags='referencing_doc')
+
+        def change_doc(event: tk.Event):
+            print('event delta:',event.delta)   # event.delta: 手指往下撥為負，往上為正
+
+            if event.delta < 0 and self.showing_page_num < len(self.app.detect_result)-1:
+                self.showing_page_num += 1
+            elif event.delta > 0 and self.showing_page_num > 0:
+                self.showing_page_num -=1
+            else:
+                return
+            
+            print(f'displaying result {self.showing_page_num}')
+            self._display_result_oncanvas(self.template_canvas, self.showing_page_num, tag="recognition_result")
+            self.keep_showing_doc = ImageTk.PhotoImage(Image.fromarray(self.app.detect_result[self.showing_page_num][1]).resize((self.canvas_w, self.canvas_h)))
+            self.doc_canvas.delete('referencing_doc')
+            self.doc_canvas.create_image(0,0,anchor=tk.NW, image=self.keep_showing_doc, tags='referencing_doc')                
+        
+        self.template_canvas.bind("<Motion>", hover)
+        self.template_canvas.bind("<Button-1>", clicked) 
+        self.template_canvas.bind("<MouseWheel>", change_doc)
+
+        self.load_template_btn.configure(state = 'disabled')
+        self.detect_files_btn.configure(state = 'disabled')
+        self.detect_folder_btn.configure(state = 'disabled')
+        self.clear_focus_btn.configure(state = 'disabled')
+        self.end_editing_btn.configure(state = 'normal')
+
+    def end_of_editing(self):
+        # 消除編輯結果的數字和事件
+        self.template_canvas.delete("recognition_result")
+        self.template_canvas.unbind("<Motion>")
+        self.template_canvas.unbind("<Button-1>")
+        self.template_canvas.unbind("<MouseWheel>")
+        self.doc_canvas.delete('referencing_doc')
+
+        # 儲存結果
+        save_path = filedialog.asksaveasfilename(
+            initialdir='app2/',
+            title=self.tg.get_text('SaveResultWindowTitle'),
+            defaultextension='.xlsx',
+            filetypes=[('Microsoft Excel', '*.xlsx')]
+        )
+        if save_path != '':
+            self.app.save_results_as_excel(save_path)
+
+        # 回到原本的框選模式
+        self.set_template_boxing_mode()
