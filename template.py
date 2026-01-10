@@ -128,17 +128,17 @@ class Template:
         for (row_borders, col_borders), focus in zip(borders_focuses, focuses, strict=True):
             focus_left, focus_top = focus['coord'][0]
             result_per_focus = []
-            # print('borders dtype:', row_borders.dtype, col_borders.dtype)
-            # print('extend value dtype:', type(cell_extend))
-            for top, bottom in pairwise(row_borders):
-                for left, right in pairwise(col_borders):
-                    x1 = max(left   + focus_left    - cell_extend, 0)
-                    x2 = min(right  + focus_left    + cell_extend, self.template.shape[1])
-                    y1 = max(top    + focus_top     - cell_extend, 0)
-                    y2 = min(bottom + focus_top     + cell_extend, self.template.shape[0])
-
-                    result_per_focus.append(((x1, y1), (x2, y2)))
-            
+            if row_borders.size != 0 and col_borders.size != 0:
+                for top, bottom in pairwise(row_borders):
+                    for left, right in pairwise(col_borders):
+                        x1 = max(left   + focus_left    - cell_extend, 0)
+                        x2 = min(right  + focus_left    + cell_extend, self.template.shape[1])
+                        y1 = max(top    + focus_top     - cell_extend, 0)
+                        y2 = min(bottom + focus_top     + cell_extend, self.template.shape[0])
+                        result_per_focus.append(((x1, y1), (x2, y2)))
+            else:
+                focus_right, focus_bottom = focus['coord'][1]
+                result_cells_focuses.append(((focus_left, focus_top), (focus_right, focus_bottom)))
             result_cells_focuses.append(np.array(result_per_focus))
 
         return result_cells_focuses

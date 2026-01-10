@@ -99,10 +99,11 @@ class WindowApp:
             print('focus coord on canvas:',focus_coord)
             print('rows on canvas:', rows)
             print('cols on canvas:', cols)
-            for row in rows:
-                canvas.create_line(cols[0], row, cols[-1], row, tags='detected_line', width=3, fill="#00f")
-            for col in cols:
-                canvas.create_line(col, rows[0], col, rows[-1], tags='detected_line', width=3, fill="#00f")
+            if len(rows) != 0 and len(cols) != 0:
+                for row in rows:
+                    canvas.create_line(cols[0], row, cols[-1], row, tags='detected_line', width=3, fill="#00f")
+                for col in cols:
+                    canvas.create_line(col, rows[0], col, rows[-1], tags='detected_line', width=3, fill="#00f")
             
             canvas.create_rectangle(focus_coord[0][0],focus_coord[0][1],focus_coord[1][0],focus_coord[1][1], tags='boxed_focus', width=5)
     

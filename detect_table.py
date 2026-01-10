@@ -38,7 +38,7 @@ def merge_near_num(arr: np.ndarray, threshold: int|float) -> np.ndarray:
     if len(near) > 0:
         avg = sum(near) / len(near)
         result.append(avg)
-    else:
+    elif arr.size >= 2:
         result.append(n2)   
 
     return np.array(result)
@@ -57,12 +57,25 @@ def hough_lines_detect(focus_template: np.ndarray, inv = False, min_gap = 0) -> 
 
     clines1 = cv2.HoughLines(focus_template, 1, np.pi * deg_res / 180, int(focus_template.shape[0]*thresh), min_theta=np.pi * ((180-deg_range_r) / 180))
     clines2 = cv2.HoughLines(focus_template, 1, np.pi * deg_res / 180, int(focus_template.shape[0]*thresh), max_theta=np.pi * (deg_range_r/180))
-    clines = np.concatenate((clines1, clines2))
+
+    if rlines is None:
+        rlines = np.array([])
+
+    clines: np.ndarray
+    if clines1 is not None and clines2 is not None:
+        clines = np.concatenate((clines1, clines2))
+    elif clines1 is not None:
+        clines = clines1
+    elif clines2 is not None:
+        clines = clines2
+    else:
+        clines = np.array([])
 
     # x*cos(theta) + y*sin(theta) = rho
-    row_center, col_center = [side / 2 for side in focus_template.shape]
-    row_lines = np.array([(rho - row_center * np.cos(theta)) / np.sin(theta) for rho, theta in rlines.reshape(-1, 2)])
-    col_lines = np.array([(rho - col_center * np.sin(theta)) / np.cos(theta) for rho, theta in clines.reshape(-1, 2)])
+    center_row, center_col = [side / 2 for side in focus_template.shape]
+    print(center_row, center_col)
+    row_lines = np.array([(rho - center_row * np.cos(theta)) / np.sin(theta) for rho, theta in rlines.reshape(-1, 2)])
+    col_lines = np.array([(rho - center_col * np.sin(theta)) / np.cos(theta) for rho, theta in clines.reshape(-1, 2)])
 
     row_borders: np.ndarray = row_lines.astype(np.int32)
     row_borders.sort()
