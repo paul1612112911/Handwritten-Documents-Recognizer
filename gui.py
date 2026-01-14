@@ -21,6 +21,7 @@ from glob import glob
 from customtkinter import *
 from typing import Literal
 from langs import TextGetter
+from dataclasses import dataclass
 
 
 
@@ -52,7 +53,7 @@ class WindowApp:
         :param mode: 轉換方向 'tp2cv' 或 'cv2tp'
         :param coord_format: 指定轉換的坐標軸 'x', 'y' 型別必與 coords 的配對數字相同
         :param coords: 待轉換的座標群組，可以是整數/浮點數或 np.ndarray 型態
-        :return: 轉換後的座標，以列表或 np.ndarray 回傳
+        :return: 轉換後的座標，以列表或 np.ndarray 返回
         """
 
         assert len(coord_format) == len(coords)
@@ -134,17 +135,15 @@ class WindowApp:
         self.template_canvas.create_image(0,0, image=self.template_photoImage, anchor='nw', tags=('template'))
         choosing_points = [] # 儲存正在選擇的點座標，以canvas座標為準
 
-
         def moving_mouse(event: tk.Event):
             self.template_canvas.delete('cross')
-            self.template_canvas.create_line(event.x, 0, event.x, self.canvas_h, tags=('cross'), fill='red')
+            self.template_canvas.create_line(event.x, 0, event.x, self.canvas_h, fill='red', tags='cross')
             self.template_canvas.create_line(0, event.y, self.canvas_w, event.y, width=1, fill='#f00', tags='cross')
 
             # 繪製目前選擇中的眶
             if len(choosing_points) == 1:
                 self.template_canvas.delete('choosing_box')
-                self.template_canvas.create_rectangle(choosing_points[0][0], choosing_points[0][1], event.x, event.y, tags=('choosing_box'), 
-                                                    outline='blue', width=3)
+                self.template_canvas.create_rectangle(choosing_points[0][0], choosing_points[0][1], event.x, event.y, tags=('choosing_box'), outline='blue', width=3)
         
         def clear_cross(event: tk.Event): # 離開時，去除十字
             self.template_canvas.delete('cross')
@@ -153,6 +152,10 @@ class WindowApp:
             choosing_points.append([event.x, event.y])
             if len(choosing_points) == 1:
                 self.status_label.configure(text=self.tg.get_text('SelectingLabel'))
+                self.load_template_btn.configure(state = 'disabled')
+                self.clear_focus_btn.configure(state = 'disabled')
+                self.detect_files_btn.configure(state = 'disabled')
+                self.detect_folder_btn.configure(state = 'disabled')
             
             if len(choosing_points) >= 2:
                 (choosing_x1, choosing_y1), (choosing_x2, choosing_y2) = choosing_points[:2]
@@ -170,6 +173,8 @@ class WindowApp:
                 self.template_canvas.delete('choosing_box')
                 self._draw_boxes_and_lines(self.template_canvas)
 
+                self.load_template_btn.configure(state = 'normal')
+                self.clear_focus_btn.configure(state = 'normal')
                 self.detect_files_btn.configure(state = 'normal')
                 self.detect_folder_btn.configure(state = 'normal')
                 self.end_editing_btn.configure(state = 'disabled')
@@ -190,87 +195,14 @@ class WindowApp:
             self.detect_folder_btn.configure(state = 'normal')
         self.end_editing_btn.configure(state = 'disabled')
 
-
-    def construct_window(self, model_names):
-        
-        self.tg = TextGetter()
-        self.tg.set_language("Chinese") # 設定語言
-
-        # 設定視窗大小位置
-        self.root.geometry('1500x800+100+100')
-
-        # 設定畫布長寬
-        self.canvas_w = 600
-        self.canvas_h = 800
-
-        # 設定左側欄位寬度
-        self.left_width = 300
-
-        # 建立可捲動的左側欄位Frame
-        self.left_side = CTkScrollableFrame(self.root, width=self.left_width, height=self.canvas_h)
-
-        # 設定字體
-        self.font = CTkFont('Microsoft JhengHei', 18)
-
-        # 建立元件
-        #  模板畫布
-        self.template_canvas = CTkCanvas(self.root, width=self.canvas_w, height=self.canvas_h, bg='white')
-
-        #  載入模板的按鈕
-        self.load_template_btn = CTkButton(self.left_side, text=self.tg.get_text('LoadTemplateBtn'), font=self.font, state='normal')
-        self.load_template_btn.configure(command=self.load_template)
-
-        #  清除框的按鈕
-        self.clear_focus_btn = CTkButton(self.left_side, text=self.tg.get_text('ClearBtn'), font=self.font, state='disabled')
-        self.clear_focus_btn.configure(command=self.clear_focus)
-
-        #  選擇使用何種模型
-        self.model_radios = [CTkRadioButton(self.left_side, text=name, value=i) for i, name in enumerate(model_names)]
-        self.choosing_model_id = tk.IntVar(value=0)
-        [radio.configure(variable=self.choosing_model_id) for radio in self.model_radios]    
-
-        #  辨識手寫圖片文件檔案的按鈕
-        self.detect_files_btn = CTkButton(self.left_side, text=self.tg.get_text('RecogFileDocBtn'), font=self.font, state='disabled')
-        self.detect_files_btn.configure(command=self.detect_files)
-
-        #  辨識資料夾內圖片的按鈕
-        self.detect_folder_btn = CTkButton(self.left_side, text=self.tg.get_text('RecogFolderDocBtn'), font=self.font, state='disabled')
-        self.detect_folder_btn.configure(command=self.detect_folder)
-
-        # 結束編輯並儲存結果的按鈕
-        self.end_editing_btn = CTkButton(self.left_side, text=self.tg.get_text('EndEditAndSaveBtn'), font=self.font, state='disabled')
-        self.end_editing_btn.configure(command=self.end_of_editing)
-
-        #  顯示文件圖片的畫布
-        self.doc_canvas = CTkCanvas(self.root, width=self.canvas_w, height=self.canvas_h)
-        
-        # 建立標籤
-        self.status_label = CTkLabel(self.left_side, text=self.tg.get_text('LoadTemplateLabel'), font=self.font, wraplength=self.left_width//3*2)
-        
-        # 模板畫布設定
-        self.chosen_boxes = [] # 儲存以畫布為主的選擇框座標
-        self.template_photoImage = None
-        
-        # 避免被垃圾回收
-        self.keep_showing_doc = None
-
-        # 設定在模板畫布上顯示結果
-        self.showing_page_num = 0
-        
-        # 建立排版
-        self.doc_canvas.pack(side='right')
-        self.template_canvas.pack(side='right')
-        self.left_side.pack(fill='y')
-        self.load_template_btn.pack(side='top', padx=10, pady=10)
-        self.clear_focus_btn.pack(side='top', padx=10, pady=10)
-        [radio.pack(side='top', padx=10, pady=10) for radio in self.model_radios]
-        self.detect_files_btn.pack(side='top', padx=10, pady=10)
-        self.detect_folder_btn.pack(side='top', padx=10, pady=10)
-        self.end_editing_btn.pack(side='top', padx=10, pady=10)
-        self.status_label.pack(side='top', pady=10)
-
     def load_template(self):
         def f():
+            self.load_template_btn.configure(state = 'disabled')
+            self.clear_focus_btn.configure(state = 'disabled')
+            self.load_template_btn.configure(state = 'disabled')
+            self.detect_files_btn.configure(state = 'disabled')
+            self.detect_folder_btn.configure(state = 'disabled')
+
             file_path = filedialog.askopenfilename()
             if file_path == '':
                 return
@@ -292,12 +224,16 @@ class WindowApp:
             file_pathes = filedialog.askopenfilenames()
             if len(file_pathes) == 0:
                 return
+            
+            self.load_template_btn.configure(state = 'disabled')
             self.clear_focus_btn.configure(state = 'disabled')
             self.load_template_btn.configure(state = 'disabled')
             self.detect_files_btn.configure(state = 'disabled')
             self.detect_folder_btn.configure(state = 'disabled')
+
             self.app.detect_docs(file_pathes)
             self.set_result_editing_mode()
+
         detect_files_thread = Thread(target=f)
         detect_files_thread.start()
 
@@ -306,12 +242,16 @@ class WindowApp:
             folder_path = filedialog.askdirectory()
             if len(folder_path) == 0:
                 return
+            
+            self.load_template_btn.configure(state = 'disabled')
             self.clear_focus_btn.configure(state = 'disabled')
             self.load_template_btn.configure(state = 'disabled')
             self.detect_files_btn.configure(state = 'disabled')
             self.detect_folder_btn.configure(state = 'disabled')
+
             self.app.detect_docs(glob(folder_path+'/*'))
             self.set_result_editing_mode()
+
         detect_folder_thread = Thread(target=f)
         detect_folder_thread.start()
 
@@ -389,7 +329,7 @@ class WindowApp:
         self.doc_canvas.create_image(0,0,anchor=tk.NW, image=self.keep_showing_doc, tags='referencing_doc')
 
         def change_doc(event: tk.Event):
-            print('event delta:',event.delta)   # event.delta: 手指往下撥為負，往上為正
+            print('event delta:',event.delta)   # event.delta: 滑鼠滾輪手指往下撥為負，往上為正
 
             if event.delta < 0 and self.showing_page_num < len(self.app.detect_result)-1:
                 self.showing_page_num += 1
@@ -398,7 +338,7 @@ class WindowApp:
             else:
                 return
             
-            print(f'displaying result {self.showing_page_num}')
+            print(f'displaying result page {self.showing_page_num}')
             self._display_result_oncanvas(self.template_canvas, self.showing_page_num, tag="recognition_result")
             self.keep_showing_doc = ImageTk.PhotoImage(Image.fromarray(self.app.detect_result[self.showing_page_num][1]).resize((self.canvas_w, self.canvas_h)))
             self.doc_canvas.delete('referencing_doc')
@@ -434,3 +374,81 @@ class WindowApp:
 
         # 回到原本的框選模式
         self.set_template_boxing_mode()
+
+    def construct_window(self, model_names):
+        
+        self.tg = TextGetter()
+        self.tg.set_language("Chinese") # 設定語言
+
+        # 設定視窗大小位置
+        self.root.geometry('1500x800+100+100')
+
+        # 設定畫布長寬
+        self.canvas_w = 600
+        self.canvas_h = 800
+
+        # 設定左側欄位寬度
+        self.left_width = 300
+
+        # 建立可捲動的左側欄位Frame
+        self.left_side = CTkScrollableFrame(self.root, width=self.left_width, height=self.canvas_h)
+
+        # 設定字體
+        self.font = CTkFont('Microsoft JhengHei', 18)
+
+        # 建立元件
+        #  模板畫布
+        self.template_canvas = CTkCanvas(self.root, width=self.canvas_w, height=self.canvas_h, bg='white')
+
+        #  載入模板的按鈕
+        self.load_template_btn = CTkButton(self.left_side, text=self.tg.get_text('LoadTemplateBtn'), font=self.font, state='normal')
+        self.load_template_btn.configure(command=self.load_template)
+
+        #  清除框的按鈕
+        self.clear_focus_btn = CTkButton(self.left_side, text=self.tg.get_text('ClearBtn'), font=self.font, state='disabled')
+        self.clear_focus_btn.configure(command=self.clear_focus)
+
+        #  選擇使用何種模型
+        self.model_radios = [CTkRadioButton(self.left_side, text=name, value=i) for i, name in enumerate(model_names)]
+        self.choosing_model_id = tk.IntVar(value=0)
+        [radio.configure(variable=self.choosing_model_id) for radio in self.model_radios]    
+
+        #  辨識手寫圖片文件檔案的按鈕
+        self.detect_files_btn = CTkButton(self.left_side, text=self.tg.get_text('RecogFileDocBtn'), font=self.font, state='disabled')
+        self.detect_files_btn.configure(command=self.detect_files)
+
+        #  辨識資料夾內圖片的按鈕
+        self.detect_folder_btn = CTkButton(self.left_side, text=self.tg.get_text('RecogFolderDocBtn'), font=self.font, state='disabled')
+        self.detect_folder_btn.configure(command=self.detect_folder)
+
+        # 結束編輯並儲存結果的按鈕
+        self.end_editing_btn = CTkButton(self.left_side, text=self.tg.get_text('EndEditAndSaveBtn'), font=self.font, state='disabled')
+        self.end_editing_btn.configure(command=self.end_of_editing)
+
+        #  顯示文件圖片的畫布
+        self.doc_canvas = CTkCanvas(self.root, width=self.canvas_w, height=self.canvas_h)
+        
+        # 建立標籤
+        self.status_label = CTkLabel(self.left_side, text=self.tg.get_text('LoadTemplateLabel'), font=self.font, wraplength=self.left_width//3*2)
+        
+        # 模板畫布設定
+        self.chosen_boxes = [] # 儲存以畫布為主的選擇框座標
+        self.template_photoImage = None
+        
+        # 避免顯示的圖片被垃圾回收
+        self.keep_showing_doc = None
+
+        # 設定在模板畫布上顯示第幾個結果
+        self.showing_page_num = 0
+        
+        # 建立排版
+        self.doc_canvas.pack(side='right')
+        self.template_canvas.pack(side='right')
+        self.left_side.pack(fill='y')
+        self.load_template_btn.pack(side='top', padx=10, pady=10)
+        self.clear_focus_btn.pack(side='top', padx=10, pady=10)
+        [radio.pack(side='top', padx=10, pady=10) for radio in self.model_radios]
+        self.detect_files_btn.pack(side='top', padx=10, pady=10)
+        self.detect_folder_btn.pack(side='top', padx=10, pady=10)
+        self.end_editing_btn.pack(side='top', padx=10, pady=10)
+        self.status_label.pack(side='top', pady=10)
